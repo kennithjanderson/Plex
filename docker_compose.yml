@@ -1,0 +1,476 @@
+version: "3.8"
+
+x-networks-proxy: &networks-proxy
+  networks:
+    - proxy
+
+x-environment: &environment
+  environment:
+    - TZ=${TZ}
+    - PUID=${PUID}
+    - PGID=${PGID}
+
+x-security: &security
+  security_opt:
+    - no-new-privileges:true
+
+x-proxy-labels: &proxy-labels
+  labels:
+    traefik.enable: "true"
+    traefik.docker.network: "proxy"
+
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *security
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - CF_API_EMAIL=${CF_API_EMAIL}
+      - CF_API_KEY=${CF_API_KEY}
+      - PRIVATE_HOSTNAME=${PRIVATE_HOSTNAME}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /plex/config/traefik/traefik.yml:/traefik.yml:ro
+      - /plex/config/traefik/dynamic.yml:/traefik_dynamic/dynamic.yml:ro
+      - /plex/config/traefik/acme.json:/acme.json:rw
+      - ./config/traefik/config.yml:/config.yml:ro
+#      - /plex/config/traefik/usersfile.txt:/usersfile.txt
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.api.entrypoints: "https"
+      traefik.http.routers.api.rule: "Host(`traefik.${PRIVATE_HOSTNAME}`)"
+      traefik.http.middlewares.api-auth.basicauth.usersfile: "/usersfile.txt"
+      traefik.http.routers.api.middlewares: "api-auth"
+      traefik.http.routers.api.tls: "true"
+      traefik.http.routers.api.tls.certresolver: "letsencrypt"
+      traefik.http.routers.api.service: "api@internal"
+
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+    ports:
+      - "32400:32400"
+      - "3005:3005"
+      - "8324:8324"
+      - "32469:32469"
+      - "1900:1900/udp"
+      - "32410:32410/udp"
+      - "32412-32414:32412-32414/udp"
+      - "5353:5353/udp"
+    runtime: nvidia
+    privileged: true
+    environment:
+      - PLEX_CLAIM=${PLEX_CLAIM_KEY}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    volumes:
+      - ./config/plexdata/config:/config
+      - ./config/transcode:/transcode
+      - ${MEDIADIR}/media/movies:/movies
+      - ${MEDIADIR}/media/TV:/TV
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.plex.entrypoints: "http"
+      traefik.http.routers.plex.rule: "Host(`plex.${PRIVATE_HOSTNAME}`)"
+      traefik.http.middlewares.plex-https-redirect.redirectscheme.scheme: "https"
+      traefik.http.routers.plex.middlewares: "secured@file"
+      traefik.http.routers.plex-secure.entrypoints: "https"
+      traefik.http.routers.plex-secure.rule: "Host(`plex.${PRIVATE_HOSTNAME}`)"
+      traefik.http.routers.plex-secure.tls: "true"
+      traefik.http.routers.plex-secure.service: "plex"
+      traefik.http.services.plex.loadbalancer.server.port: "32400"
+      com.centurylinklabs.watchtower.enable: "true"
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+      - *security
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config/radarr:/config
+      - ${MEDIADIR}:/data
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.radarr.entrypoints: "http"
+      traefik.http.routers.radarr.rule: "Host(`radarr.${PRIVATE_HOSTNAME}`)"
+      traefik.http.middlewares.radarr-https-redirect.redirectscheme.scheme: "https"
+      traefik.http.routers.radarr.middlewares: "secured@file"
+      traefik.http.routers.radarr-secure.entrypoints: "https"
+      traefik.http.routers.radarr-secure.rule: "Host(`radarr.${PRIVATE_HOSTNAME}`)"
+      traefik.http.routers.radarr-secure.tls: "true"
+      traefik.http.routers.radarr-secure.service: "radarr"
+      traefik.http.services.radarr.loadbalancer.server.port: "7878"
+      com.centurylinklabs.watchtower.enable: "true"
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+      - *security
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /plex/config/sonarr:/config
+      - ${MEDIADIR}:/data
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.sonarr.entrypoints: "http"
+      traefik.http.routers.sonarr.rule: "Host(`sonarr.${PRIVATE_HOSTNAME}`)"
+      traefik.http.middlewares.sonarr-https-redirect.redirectscheme.scheme: "https"
+      traefik.http.routers.sonarr.middlewares: "secured@file"
+      traefik.http.routers.sonarr-secure.entrypoints: "https"
+      traefik.http.routers.sonarr-secure.rule: "Host(`sonarr.${PRIVATE_HOSTNAME}`)"
+      traefik.http.routers.sonarr-secure.tls: "true"
+      traefik.http.routers.sonarr-secure.service: "sonarr"
+      traefik.http.services.sonarr.loadbalancer.server.port: "8989"
+      com.centurylinklabs.watchtower.enable: "true"
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+      - *security
+    volumes:
+      - ./config/bazarr:/config
+      - ${MEDIADIR}/media:/data/media
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.bazarr.entrypoints: "http"
+      traefik.http.routers.bazarr.rule: "Host(`bazarr.${PRIVATE_HOSTNAME}`)"
+      traefik.http.middlewares.bazarr-https-redirect.redirectscheme.scheme: "https"
+      traefik.http.routers.bazarr.middlewares: "secured@file"
+      traefik.http.routers.bazarr-secure.entrypoints: "https"
+      traefik.http.routers.bazarr-secure.rule: "Host(`bazarr.${PRIVATE_HOSTNAME}`)"
+      traefik.http.routers.bazarr-secure.tls: "true"
+      traefik.http.routers.bazarr-secure.service: "bazarr"
+      traefik.http.services.bazarr.loadbalancer.server.port: "6767"
+      com.centurylinklabs.watchtower.enable: "true"
+
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+      - *security
+    ports:
+      - "8089:8080"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config/sabnzbd:/config
+      - ${MEDIADIR}/usenet:/data/usenet:rw
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.sabnzbd.entrypoints: "http"
+      traefik.http.routers.sabnzbd.rule: "Host(`sabnzbd.${PRIVATE_HOSTNAME}`)"
+      traefik.http.middlewares.sabnzbd-https-redirect.redirectscheme.scheme: "https"
+      traefik.http.routers.sabnzbd.middlewares: "secured@file"
+      traefik.http.routers.sabnzbd-secure.entrypoints: "https"
+      traefik.http.routers.sabnzbd-secure.rule: "Host(`sabnzbd.${PRIVATE_HOSTNAME}`)"
+      traefik.http.routers.sabnzbd-secure.tls: "true"
+      traefik.http.routers.sabnzbd-secure.service: "sabnzbd"
+      traefik.http.services.sabnzbd.loadbalancer.server.port: "8080"
+      com.centurylinklabs.watchtower.enable: "true"
+
+  organizr:
+    image: organizr/organizr:latest
+    container_name: organizr
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+      - *security
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config/organizr:/config
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.organizr.entrypoints: "http"
+      traefik.http.routers.organizr.rule: "Host(`organizr.${PRIVATE_HOSTNAME}`)"
+      traefik.http.middlewares.organizr-https-redirect.redirectscheme.scheme: "https"
+      traefik.http.routers.organizr.middlewares: "secured@file"
+      traefik.http.routers.organizr-secure.entrypoints: "https"
+      traefik.http.routers.organizr-secure.rule: "Host(`organizr.${PRIVATE_HOSTNAME}`)"
+      traefik.http.routers.organizr-secure.tls: "true"
+      traefik.http.routers.organizr-secure.service: "organizr"
+      traefik.http.services.organizr.loadbalancer.server.port: "80"
+      com.centurylinklabs.watchtower.enable: "true"
+
+  overseerr:
+    image: lscr.io/linuxserver/overseerr:latest
+    container_name: overseerr
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+      - *security
+    volumes:
+      - /plex/config/overseerr:/config
+    ports:
+      - "5055:5055"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.overseerr.entrypoints: "http"
+      traefik.http.routers.overseerr.rule: "Host(`media.${PRIVATE_HOSTNAME}`)"
+      traefik.http.middlewares.overseerr-https-redirect.redirectscheme.scheme: "https"
+      traefik.http.routers.overseerr.middlewares: "secured@file"
+      traefik.http.routers.overseerr-secure.entrypoints: "https"
+      traefik.http.routers.overseerr-secure.rule: "Host(`media.${PRIVATE_HOSTNAME}`)"
+      traefik.http.routers.overseerr-secure.tls: "true"
+      traefik.http.routers.overseerr-secure.service: "overseerr"
+      traefik.http.services.overseerr.loadbalancer.server.port: "5055"
+      com.centurylinklabs.watchtower.enable: "true"
+      
+  tautulli:
+    image: lscr.io/linuxserver/tautulli:latest
+    container_name: tautulli
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *environment
+      - *security
+    ports:
+      - "8181:8181"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config/tautulli:/config
+      - "./config/plexdata/config/Library/Application Support/Plex Media Server/Logs:/logs:ro"
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+      - *security
+    volumes:
+      - ./config/prowlarr:/config
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  unpackerr:
+    image: golift/unpackerr
+    container_name: unpackerr
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *environment
+      - *security
+    environment:
+      - TZ=America/Chicago
+      - UN_LOG_FILE=/downloads/unpackerr.log
+      - UN_SONARR_0_URL=http://sonarr:8989
+      - UN_SONARR_0_API_KEY=${SONARR_API_KEY}
+      - UN_SONARR_0_PATHS_0=/data/downloads
+      - UN_RADARR_0_URL=http://radarr:7878
+      - UN_RADARR_0_API_KEY=${RADARR_API_KEY}
+      - UN_RADARR_0_PATHS_0=/data/downloads
+    volumes:
+      - ${MEDIADIR}:/data
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *environment
+      - *security
+    ports:
+      - "8191:8191"
+
+  gluetun:
+    image: qmcgaw/gluetun
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    restart: unless-stopped
+    networks:
+      - proxy
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=openvpn
+      - OPENVPN_USER=${vpn_username}
+      - OPENVPN_PASSWORD=${vpn_password}
+      - SERVER_COUNTRIES=Netherlands
+      - FIREWALL=on
+      - DNS=cloudflare
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
+      - PORT_FORWARDING_STATUS_FILE=/tmp/gluetun/forwarded_port.json
+      - PORT_FORWARDING_STATUS_FILE_FORMAT=json
+    volumes:
+      - ./gluetun:/gluetun
+    ports:
+      - "127.0.0.1:8080:8080"   # qBittorrent
+      - "8001:8000/tcp"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    restart: unless-stopped
+    network_mode: "container:gluetun"
+    depends_on:
+      - gluetun
+    volumes:
+      - ./config/qbittorrent:/config
+      - ${MEDIADIR}:/data
+      - ./gluetun:/gluetun
+    environment:
+      - WEBUI_PORT=8080
+      - QBITTORRENT_PORT_FORWARDING=yes
+      - GLUETUN_PORT_FORWARD_STATUS_FILE=/tmp/gluetun/forwarded_port.json
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  gluetun-qbittorrent-port-manager:
+    image: patrickaclark/gluetun-qbittorrent-port-manager:latest
+    container_name: port-manager
+    restart: unless-stopped
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+      - qbittorrent
+    volumes:
+      - ./gluetun:/tmp/gluetun:ro
+    environment:
+      - QBITTORRENT_SERVER=localhost
+      - QBITTORRENT_PORT=8080
+      - QBITTORRENT_USER=admin 
+      - QBITTORRENT_PASS=${qbittorrent_pass} 
+      - PORT_FORWARDED=/tmp/gluetun/forwarded_port.json
+      - HTTP_S=http
+      - GLUETUN_HOST=localhost
+      - GLUETUN_PORT=8000
+      - RECHECK_TIME=60
+      - TZ=America/Chicago
+
+  notifiarr:
+    image: golift/notifiarr
+    container_name: notifiarr
+    restart: unless-stopped
+    hostname: notifiarr
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+    environment:
+      - DN_API_KEY=${NOTIFIARR_API_KEY}
+      - TZ=America/Chicago
+    volumes:
+      - ${MEDIADIR}/config/notifiarr:/config
+      - /:/host:ro,rslave
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.notifiarr.entrypoints: "http"
+      traefik.http.routers.notifiarr.rule: "Host(`notifiarr.${PUBLIC_HOSTNAME}`)"
+      traefik.http.middlewares.notifiarr-https-redirect.redirectscheme.scheme: "https"
+      traefik.http.routers.notifiarr.middlewares: "notifiarr-https-redirect,secured@file"
+      traefik.http.routers.notifiarr-secure.entrypoints: "https"
+      traefik.http.routers.notifiarr-secure.rule: "Host(`notifiarr.${PUBLIC_HOSTNAME}`)"
+      traefik.http.routers.notifiarr-secure.tls: "true"
+      traefik.http.routers.notifiarr-secure.service: "notifiarr"
+      traefik.http.services.notifiarr.loadbalancer.server.port: "5454"
+      com.centurylinklabs.watchtower.enable: "true"
+    ports:
+        - "5454:5454"
+
+  dispatcharr:
+    image: ghcr.io/dispatcharr/dispatcharr:latest
+    container_name: dispatcharr
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *proxy-labels
+      - *environment
+    runtime: nvidia
+    environment:
+      - DISPATCHARR_ENV=aio
+      - REDIS_HOST=localhost
+      - DISPATCHARR_TUNER_MODE=hdhomerun
+      - CELERY_BROKER_URL=redis://localhost:6379/0
+      - DISPATCHARR_LOG_LEVEL=info
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    volumes:
+      - ${MEDIADIR}/config/dispatcharr:/data
+    ports:
+      - 9191:9191  # web interface
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    <<:
+      - *networks-proxy
+      - *environment
+      - *security
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --cleanup --label-enable --schedule "0 0 4 * * *"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel run overseerr-tunnel
+    <<:
+      - *networks-proxy
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  agregarr:
+    image: agregarr/agregarr:latest
+    container_name: agregarr
+    <<:
+      - *networks-proxy
+      - *environment
+    volumes:
+      - ${MEDIADIR}/config/agregarr:/app/config
+    ports:
+      - 7171:7171
+    restart: unless-stopped
+
+networks:
+  proxy:
+    driver: bridge
