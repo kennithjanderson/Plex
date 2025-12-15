@@ -30,8 +30,10 @@ services:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
     restart: unless-stopped
-    networks:
-      - proxy
+    network_mode: "container:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
@@ -41,7 +43,8 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${MEDIADIR}/config/radarr:/config
-      - ${MEDIADIR}:/data
+      - ${MEDIADIR}/media/movies:/movies
+      - ${MEDIADIR}/media/torrent/download:/downloads
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -49,8 +52,10 @@ services:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
     restart: unless-stopped
-    networks:
-      - proxy
+    network_mode: "container:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
@@ -60,7 +65,8 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${MEDIADIR}/config/sonarr:/config
-      - ${MEDIADIR}:/data
+      - ${MEDIADIR}/media/TV:/TV
+      - ${MEDIADIR}/media/torrent/download:/downloads
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -121,20 +127,22 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
-  overseerr:
-    image: lscr.io/linuxserver/overseerr:latest
-    container_name: overseerr
+  seerr:
+    image: seerr/seerr:sha-539d498
+    container_name: seerr
     restart: unless-stopped
     networks:
       - proxy
+    user: "911:911"
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
       - PGID=${PGID}
+      - REQUEST_TIMEOUT=15000
     security_opt:
       - no-new-privileges:true
     volumes:
-      - ${MEDIADIR}/config/overseerr:/config
+      - ${MEDIADIR}/config/overseerr:/app/config
     ports:
       - "5055:5055"
     labels:
@@ -165,8 +173,10 @@ services:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
     restart: unless-stopped
-    networks:
-      - proxy
+    network_mode: "container:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
@@ -189,16 +199,16 @@ services:
       - PUID=${PUID}
       - PGID=${PGID}
       - UN_LOG_FILE=/downloads/unpackerr.log
-      - UN_SONARR_0_URL=http://sonarr:8989
+      - UN_SONARR_0_URL=http://gluetun:8989
       - UN_SONARR_0_API_KEY=${SONARR_API_KEY}
-      - UN_SONARR_0_PATHS_0=/data/downloads
-      - UN_RADARR_0_URL=http://radarr:7878
+      - UN_SONARR_0_PATHS_0=/downloads
+      - UN_RADARR_0_URL=http://gluetun:7878
       - UN_RADARR_0_API_KEY=${RADARR_API_KEY}
-      - UN_RADARR_0_PATHS_0=/data/downloads
+      - UN_RADARR_0_PATHS_0=/downloads
     security_opt:
       - no-new-privileges:true
     volumes:
-      - ${MEDIADIR}:/data
+      - ${MEDIADIR}/media/torrent/download:/downloads
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -237,17 +247,26 @@ services:
       - WIREGUARD_DNS=auto
       - SERVER_COUNTRIES=Netherlands
       - FIREWALL=on
-      - DNS=none
+      - DNS=1.1.1.1,8.8.4.4
       - DOT=on
+      - DOT_PROVIDERS=cloudflare
+      - HEALTH_TARGET=google.com
+      - HEALTH_CHECK_INTERVAL=1m
+      - HEALTH_CHECK_RETRIES=5
       - VPN_PORT_FORWARDING=on
       - VPN_PORT_FORWARDING_PROVIDER=protonvpn
       - PORT_FORWARDING_STATUS_FILE=/gluetun/forwarded_port.json
       - PORT_FORWARDING_STATUS_FILE_FORMAT=json
+      - FIREWALL_ALLOWED_SUBNETS=172.18.0.0/16,172.19.0.0/16,172.20.0.0/16
     volumes:
       - ${MEDIADIR}/gluetun:/gluetun
     ports:
-      - "127.0.0.1:8080:8080"
-      - "8001:8000/tcp"
+      - "127.0.0.1:8080:8080" #qBittorrent
+      - "8001:8000/tcp" #Port Manager
+      - "7878:7878" #Radarr
+      - "8989:8989" #Sonarr
+      - "9696:9696" #Prowlarr
+      - "9000:9000" #Lounge
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -257,15 +276,20 @@ services:
     restart: unless-stopped
     network_mode: "container:gluetun"
     depends_on:
-      - gluetun
+      gluetun:
+        condition: service_healthy
     volumes:
       - ${MEDIADIR}/config/qbittorrent:/config
-      - ${MEDIADIR}:/data
+      - ${MEDIADIR}/media/torrent/download:/downloads
       - ${MEDIADIR}/gluetun:/gluetun
     environment:
       - WEBUI_PORT=8080
       - QBITTORRENT_PORT_FORWARDING=yes
-      - GLUETUN_PORT_FORWARD_STATUS_FILE=/tmp/gluetun/forwarded_port.json
+      - GLUETUN_PORT_FORWARD_STATUS_FILE=/gluetun/forwarded_port.json
+    deploy:
+      resources:
+        limits:
+          memory: 5g
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -275,16 +299,16 @@ services:
     restart: unless-stopped
     network_mode: "service:gluetun"
     depends_on:
-      - gluetun
-      - qbittorrent
+      gluetun:
+        condition: service_healthy
     volumes:
-      - ${MEDIADIR}/gluetun:/tmp/gluetun:ro
+      - ${MEDIADIR}/gluetun:/gluetun:ro
     environment:
       - QBITTORRENT_SERVER=localhost
       - QBITTORRENT_PORT=8080
       - QBITTORRENT_USER=admin
       - QBITTORRENT_PASS=${qbittorrent_pass}
-      - PORT_FORWARDED=/tmp/gluetun/forwarded_port.json
+      - PORT_FORWARDED=/gluetun/forwarded_port.json
       - HTTP_S=http
       - GLUETUN_HOST=localhost
       - GLUETUN_PORT=8000
@@ -297,11 +321,13 @@ services:
     image: ghcr.io/cross-seed/cross-seed:6
     container_name: cross-seed
     user: 911:911
-    networks:
-      - proxy
+    network_mode: "container:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
     volumes:
       - ${MEDIADIR}/config/cross-seed:/config
-      - ${MEDIADIR}:/data
+      - ${MEDIADIR}/media/torrent/download:/downloads
     command: daemon
     restart: unless-stopped
     labels:
@@ -336,7 +362,7 @@ services:
     ports:
       - "9191:9191"
     volumes:
-      - ${MEDIADIR}/config/TV:/data
+      - ${MEDIADIR}/config/dispatcharr:/data
     environment:
       - DISPATCHARR_ENV=aio
       - DISPATCHARR_TUNER_MODE=hdhomerun
@@ -350,6 +376,23 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  thelounge:
+    image: thelounge/thelounge:latest
+    container_name: thelounge
+    restart: unless-stopped
+    network_mode: "container:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+    volumes:
+      - ${MEDIADIR}/config/thelounge:/var/opt/thelounge
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -379,6 +422,9 @@ services:
       - proxy
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+      - TUNNEL_TRANSPORT=http2
+      - TUNNEL_TIMEOUT=30s
+      - NO_AUTOUPDATE=true
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
