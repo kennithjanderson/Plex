@@ -19,12 +19,14 @@ services:
     runtime: nvidia
     privileged: true
     volumes:
-      - ${MEDIADIR}/config/plexdata/config:/config
-      - ${MEDIADIR}/config/transcode:/transcode
+      - ${CONFIGDIR}/plexdata/config:/config
+      - ${CONFIGDIR}/transcode:/transcode
       - ${MEDIADIR}/media/movies:/movies
       - ${MEDIADIR}/media/TV:/TV
+      - ${MEDIADIR}/media/placeholders/movies:/data/movies 
+      - ${MEDIADIR}/media/placeholders/tv:/data/tv
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
 
   radarr:
     image: lscr.io/linuxserver/radarr:latest
@@ -42,11 +44,13 @@ services:
       - no-new-privileges:true
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${MEDIADIR}/config/radarr:/config
+      - ${CONFIGDIR}/radarr:/config
       - ${MEDIADIR}/media/movies:/movies
       - ${MEDIADIR}/media/torrent/download:/downloads
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+      dev.quenary.tugtainer.group: "gluetun-stack"
+      dev.quenary.tugtainer.depends_on: "gluetun"
 
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
@@ -64,11 +68,13 @@ services:
       - no-new-privileges:true
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${MEDIADIR}/config/sonarr:/config
+      - ${CONFIGDIR}/sonarr:/config
       - ${MEDIADIR}/media/TV:/TV
       - ${MEDIADIR}/media/torrent/download:/downloads
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+      dev.quenary.tugtainer.group: "gluetun-stack"
+      dev.quenary.tugtainer.depends_on: "gluetun"
 
   bazarr:
     image: lscr.io/linuxserver/bazarr:latest
@@ -83,10 +89,10 @@ services:
     security_opt:
       - no-new-privileges:true
     volumes:
-      - ${MEDIADIR}/config/bazarr:/config
+      - ${CONFIGDIR}/bazarr:/config
       - ${MEDIADIR}/media:/data/media
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
 
   sabnzbd:
     image: lscr.io/linuxserver/sabnzbd:latest
@@ -104,31 +110,13 @@ services:
       - "8089:8080"
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${MEDIADIR}/config/sabnzbd:/config
+      - ${CONFIGDIR}/sabnzbd:/config
       - ${MEDIADIR}/usenet:/data/usenet:rw
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
-
-  organizr:
-    image: organizr/organizr:latest
-    container_name: organizr
-    restart: unless-stopped
-    networks:
-      - proxy
-    environment:
-      - TZ=${TZ}
-      - PUID=911
-      - PGID=911
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ${MEDIADIR}/config/organizr:/config
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
 
   seerr:
-    image: seerr/seerr:sha-539d498
+    image: seerr/seerr:develop
     container_name: seerr
     restart: unless-stopped
     networks:
@@ -142,11 +130,32 @@ services:
     security_opt:
       - no-new-privileges:true
     volumes:
-      - ${MEDIADIR}/config/overseerr:/app/config
+      - ${CONFIGDIR}/overseerr:/app/config
     ports:
       - "5055:5055"
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+
+  agregarr:
+    image: agregarr/agregarr:latest
+    container_name: agregarr
+    restart: unless-stopped
+    networks:
+      - proxy
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+    ports:
+      - "7171:7171"
+    volumes:
+      - ${CONFIGDIR}/agregarr:/app/config
+      - ${MEDIADIR}/media/movies:/movies
+      - ${MEDIADIR}/media/TV:/TV
+      - ${MEDIADIR}/media/placeholders/movies:/data/movies 
+      - ${MEDIADIR}/media/placeholders/tv:/data/tv
+    labels:
+      dev.quenary.tugtainer.enable: "true"
 
   tautulli:
     image: lscr.io/linuxserver/tautulli:latest
@@ -164,10 +173,10 @@ services:
       - "8181:8181"
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${MEDIADIR}/config/tautulli:/config
-      - "${MEDIADIR}/config/plexdata/config/Library/Application Support/Plex Media Server/Logs:/logs:ro"
+      - ${CONFIGDIR}/tautulli:/config
+      - "${CONFIGDIR}/plexdata/config/Library/Application Support/Plex Media Server/Logs:/logs:ro"
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
 
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
@@ -184,9 +193,11 @@ services:
     security_opt:
       - no-new-privileges:true
     volumes:
-      - ${MEDIADIR}/config/prowlarr:/config
+      - ${CONFIGDIR}/prowlarr:/config
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+      dev.quenary.tugtainer.group: "gluetun-stack"
+      dev.quenary.tugtainer.depends_on: "gluetun"
 
   unpackerr:
     image: golift/unpackerr
@@ -194,10 +205,9 @@ services:
     restart: unless-stopped
     networks:
       - proxy
+    user: "${PUID}:${PGID}"
     environment:
       - TZ=${TZ}
-      - PUID=${PUID}
-      - PGID=${PGID}
       - UN_LOG_FILE=/downloads/unpackerr.log
       - UN_SONARR_0_URL=http://gluetun:8989
       - UN_SONARR_0_API_KEY=${SONARR_API_KEY}
@@ -210,7 +220,7 @@ services:
     volumes:
       - ${MEDIADIR}/media/torrent/download:/downloads
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
 
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
@@ -227,7 +237,7 @@ services:
     ports:
       - "8191:8191"
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
 
   gluetun:
     image: qmcgaw/gluetun
@@ -259,7 +269,7 @@ services:
       - PORT_FORWARDING_STATUS_FILE_FORMAT=json
       - FIREWALL_ALLOWED_SUBNETS=172.18.0.0/16,172.19.0.0/16,172.20.0.0/16
     volumes:
-      - ${MEDIADIR}/gluetun:/gluetun
+      - ${CONFIGDIR}/gluetun:/gluetun
     ports:
       - "127.0.0.1:8080:8080" #qBittorrent
       - "8001:8000/tcp" #Port Manager
@@ -267,8 +277,10 @@ services:
       - "8989:8989" #Sonarr
       - "9696:9696" #Prowlarr
       - "9000:9000" #Lounge
+      - "9191:9191" #dispatcharr
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+      dev.quenary.tugtainer.group: "gluetun-stack"
 
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
@@ -279,9 +291,9 @@ services:
       gluetun:
         condition: service_healthy
     volumes:
-      - ${MEDIADIR}/config/qbittorrent:/config
+      - ${CONFIGDIR}/qbittorrent:/config
       - ${MEDIADIR}/media/torrent/download:/downloads
-      - ${MEDIADIR}/gluetun:/gluetun
+      - ${CONFIGDIR}/gluetun:/gluetun
     environment:
       - WEBUI_PORT=8080
       - QBITTORRENT_PORT_FORWARDING=yes
@@ -291,7 +303,9 @@ services:
         limits:
           memory: 5g
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+      dev.quenary.tugtainer.group: "gluetun-stack"
+      dev.quenary.tugtainer.depends_on: "gluetun"
 
   gluetun-qbittorrent-port-manager:
     image: snoringdragon/gluetun-qbittorrent-port-manager:latest
@@ -302,7 +316,7 @@ services:
       gluetun:
         condition: service_healthy
     volumes:
-      - ${MEDIADIR}/gluetun:/gluetun:ro
+      - ${CONFIGDIR}/gluetun:/gluetun:ro
     environment:
       - QBITTORRENT_SERVER=localhost
       - QBITTORRENT_PORT=8080
@@ -315,10 +329,12 @@ services:
       - RECHECK_TIME=60
       - TZ=America/Chicago
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+      dev.quenary.tugtainer.group: "gluetun-stack"
+      dev.quenary.tugtainer.depends_on: "qbittorrent"
 
   cross-seed:
-    image: ghcr.io/cross-seed/cross-seed:6
+    image: ghcr.io/cross-seed/cross-seed:latest
     container_name: cross-seed
     user: 911:911
     network_mode: "container:gluetun"
@@ -326,12 +342,14 @@ services:
       gluetun:
         condition: service_healthy
     volumes:
-      - ${MEDIADIR}/config/cross-seed:/config
+      - ${CONFIGDIR}/cross-seed:/config
       - ${MEDIADIR}/media/torrent/download:/downloads
     command: daemon
     restart: unless-stopped
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+      dev.quenary.tugtainer.group: "gluetun-stack"
+      dev.quenary.tugtainer.depends_on: "qbittorrent"
 
   notifiarr:
     image: golift/notifiarr
@@ -347,22 +365,25 @@ services:
       - DN_API_KEY=${NOTIFIARR_API_KEY}
       - TZ=America/Chicago
     volumes:
-      - ${MEDIADIR}/config/notifiarr:/config
+      - ${CONFIGDIR}/notifiarr:/config
       - /:/host:ro,rslave
     ports:
       - "5454:5454"
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
 
   dispatcharr:
     image: ghcr.io/dispatcharr/dispatcharr:latest
     container_name: dispatcharr
-    networks:
-      - proxy
-    ports:
-      - "9191:9191"
+    network_mode: "container:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
     volumes:
-      - ${MEDIADIR}/config/dispatcharr:/data
+      - ${CONFIGDIR}/dispatcharr:/data 
+      - ${CONFIGDIR}/dispatcharr/static:/app/static 
+      - ${CONFIGDIR}/dispatcharr/media:/app/media 
+      - ${CONFIGDIR}/dispatcharr/logo_cache:/app/logo_cache
     environment:
       - DISPATCHARR_ENV=aio
       - DISPATCHARR_TUNER_MODE=hdhomerun
@@ -377,7 +398,9 @@ services:
               count: all
               capabilities: [gpu]
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+      dev.quenary.tugtainer.group: "gluetun-stack"
+      dev.quenary.tugtainer.depends_on: "gluetun"
 
   thelounge:
     image: thelounge/thelounge:latest
@@ -392,27 +415,29 @@ services:
       - PUID=${PUID}
       - PGID=${PGID}
     volumes:
-      - ${MEDIADIR}/config/thelounge:/var/opt/thelounge
+      - ${CONFIGDIR}/thelounge:/var/opt/thelounge
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
+      dev.quenary.tugtainer.group: "gluetun-stack"
+      dev.quenary.tugtainer.depends_on: "gluetun"
 
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
+  homarr:
+    image: ghcr.io/homarr-labs/homarr:latest
+    container_name: homarr
     restart: unless-stopped
     networks:
       - proxy
+    ports:
+      - "7575:7575"
     environment:
       - TZ=${TZ}
-      - PUID=${PUID}
-      - PGID=${PGID}
-    security_opt:
-      - no-new-privileges:true
+
+      - SECRET_ENCRYPTION_KEY=${HOMARR_KEY}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --cleanup --label-enable --schedule "0 0 4 * * *"
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${CONFIGDIR}/homarr/appdata:/appdata
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -427,7 +452,7 @@ services:
       - NO_AUTOUPDATE=true
     restart: unless-stopped
     labels:
-      com.centurylinklabs.watchtower.enable: "true"
+      dev.quenary.tugtainer.enable: "true"
 
 networks:
   proxy:
